@@ -1,6 +1,6 @@
 #![forbid(unsafe_code)]
 
-use std::{fs, io};
+use std::{fs, io::{self, BufRead as _}};
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -14,7 +14,7 @@ pub enum ParseError {
 }
 
 pub struct WubiEntry {
-    character: char,
+    phrase: String,
     wubi_code: Vec<u8>,
 }
 
@@ -41,7 +41,7 @@ fn parse_line_with_codepoint(line: &str) -> Result<WubiEntry, ParseError> {
         return Err(ParseError::Invalid);
     }
     Ok(WubiEntry {
-        character: ch,
+        phrase: ch.to_string(),
         wubi_code: wubi.as_bytes().to_vec(),
     })
 }
@@ -65,7 +65,7 @@ fn parse_line_without_codepoint(line: &str) -> Result<WubiEntry, ParseError> {
         return Err(ParseError::Invalid);
     }
     Ok(WubiEntry {
-        character: ch,
+        phrase: ch.to_string(),
         wubi_code: wubi.as_bytes().to_vec(),
     })
 }
@@ -105,11 +105,82 @@ impl WubiTable {
         })
     }
 
+    fn binary_search_code(&self, character: char) -> Option<Vec<u8>> {
+        let character = character.to_string();
+        let left = self.entries.partition_point(|e| e.phrase < character);
+        let right = self.entries.partition_point(|e| e.phrase <= character);
+        self.entries[left..right].iter().map(|e| e.wubi_code.clone()).max_by_key(|p| p.len())
+    }
+
+    pub fn extend_phrases<I: Iterator<Item = String>>(&mut self, phrases: I) {
+        self.entries.sort_unstable_by_key(|entry| entry.phrase.clone());
+        for phrase in phrases {
+            let mut chars = phrase.chars();
+            let wubi_code: Vec<u8> = match chars.clone().count() {
+                0 | 1 => continue,
+                2 => {
+                    let first = chars.next().expect("checked");
+                    let second = chars.next().expect("checked");
+                    let first = self.binary_search_code(first).unwrap();
+                    let second = self.binary_search_code(second).unwrap();
+                    first
+                        .split_at_checked(2)
+                        .unwrap()
+                        .0
+                        .iter()
+                        .chain(second.split_at_checked(2).unwrap().0.iter())
+                        .cloned()
+                        .collect()
+                }
+                3 => {
+                    let first = chars.next().expect("checked");
+                    let second = chars.next().expect("checked");
+                    let third = chars.next().expect("checked");
+                    let first = self.binary_search_code(first).unwrap();
+                    let second = self.binary_search_code(second).unwrap();
+                    let third = self.binary_search_code(third).unwrap();
+                    first
+                        .split_at_checked(1)
+                        .unwrap()
+                        .0
+                        .iter()
+                        .chain(second.split_at_checked(1).unwrap().0.iter())
+                        .chain(third.split_at_checked(2).unwrap().0.iter())
+                        .cloned()
+                        .collect()
+                }
+                4.. => {
+                    let first = chars.next().expect("checked");
+                    let second = chars.next().expect("checked");
+                    let third = chars.next().expect("checked");
+                    let last = chars.last().expect("checked");
+                    let first = self.binary_search_code(first).unwrap();
+                    let second = self.binary_search_code(second).unwrap();
+                    let third = self.binary_search_code(third).unwrap();
+                    let last = self.binary_search_code(last).unwrap();
+                    first
+                        .split_at_checked(1)
+                        .unwrap()
+                        .0
+                        .iter()
+                        .chain(second.split_at_checked(1).unwrap().0.iter())
+                        .chain(third.split_at_checked(1).unwrap().0.iter())
+                        .chain(last.split_at_checked(1).unwrap().0.iter())
+                        .cloned()
+                        .collect()
+                }
+            };
+
+            let entry = WubiEntry { phrase, wubi_code };
+            self.entries.insert(self.entries.partition_point(|e| e.phrase < entry.phrase), entry);
+        }
+    }
+
     pub fn unique_reverse_table(&mut self) -> bool {
         self.entries
-            .sort_unstable_by(|a, b| a.character.cmp(&b.character));
+            .sort_unstable_by(|a, b| a.phrase.cmp(&b.phrase));
         for i in 1..self.entries.len() {
-            if self.entries[i - 1].character == self.entries[i].character {
+            if self.entries[i - 1].phrase == self.entries[i].phrase {
                 return false;
             }
         }
@@ -118,15 +189,15 @@ impl WubiTable {
 
     pub fn write_reverse_table<W: io::Write>(&mut self, mut writer: W) -> io::Result<()> {
         self.entries.sort_unstable_by(|a, b| {
-            a.character
-                .cmp(&b.character)
+            a.phrase
+                .cmp(&b.phrase)
                 .then(a.wubi_code.len().cmp(&b.wubi_code.len()))
         });
 
         let mut iter = self.entries.iter();
         let mut last_entry = {
             if let Some(first) = iter.next() {
-                write!(writer, "{} ", first.character)?;
+                write!(writer, "{} ", first.phrase)?;
                 writer.write_all(&first.wubi_code)?;
                 first
             } else {
@@ -134,8 +205,8 @@ impl WubiTable {
             }
         };
         for entry in iter {
-            if entry.character != last_entry.character {
-                write!(writer, "\n{} ", entry.character)?;
+            if entry.phrase != last_entry.phrase {
+                write!(writer, "\n{} ", entry.phrase)?;
             } else {
                 if entry.wubi_code == last_entry.wubi_code {
                     continue;
@@ -156,7 +227,7 @@ impl WubiTable {
         let mut last_entry = {
             if let Some(first) = iter.next() {
                 writer.write_all(&first.wubi_code)?;
-                write!(writer, " {}", first.character)?;
+                write!(writer, " {}", first.phrase)?;
                 first
             } else {
                 return Ok(());
@@ -166,10 +237,10 @@ impl WubiTable {
             if entry.wubi_code != last_entry.wubi_code {
                 writer.write_all(b"\n")?;
                 writer.write_all(&entry.wubi_code)?;
-            } else if entry.character == last_entry.character {
+            } else if entry.phrase == last_entry.phrase {
                 continue;
             }
-            write!(writer, " {}", entry.character)?;
+            write!(writer, " {}", entry.phrase)?;
             last_entry = entry;
         }
         writer.write_all(b"\n")
@@ -194,6 +265,14 @@ fn main() {
     let mut reverse_table_file =
         io::BufWriter::new(fs::File::create("wb_nc_reverse_table.txt").unwrap());
     table.write_reverse_table(&mut reverse_table_file).unwrap();
+
+    let phrases = io::BufReader::new(
+        fs::File::open(std::env::var("WUBI_PHRASES").unwrap()).unwrap(),
+    )
+    .lines()
+    .map(|line| line.unwrap());
+    table.extend_phrases(phrases);
+
     let mut table_file = io::BufWriter::new(fs::File::create("wb_nc_table.txt").unwrap());
     table.write_table(&mut table_file).unwrap();
 }
