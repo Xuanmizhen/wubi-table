@@ -113,7 +113,7 @@ impl WubiTable {
     }
 
     pub fn extend_phrases<I: Iterator<Item = String>>(&mut self, phrases: I) {
-        self.entries.sort_unstable_by_key(|entry| entry.phrase.clone());
+        self.entries.sort_by_key(|entry| entry.phrase.clone());
         for phrase in phrases {
             let mut chars = phrase.chars();
             let wubi_code: Vec<u8> = match chars.clone().count() {
@@ -178,7 +178,7 @@ impl WubiTable {
 
     pub fn unique_reverse_table(&mut self) -> bool {
         self.entries
-            .sort_unstable_by(|a, b| a.phrase.cmp(&b.phrase));
+            .sort_by(|a, b| a.phrase.cmp(&b.phrase));
         for i in 1..self.entries.len() {
             if self.entries[i - 1].phrase == self.entries[i].phrase {
                 return false;
@@ -188,7 +188,7 @@ impl WubiTable {
     }
 
     pub fn write_reverse_table<W: io::Write>(&mut self, mut writer: W) -> io::Result<()> {
-        self.entries.sort_unstable_by(|a, b| {
+        self.entries.sort_by(|a, b| {
             a.phrase
                 .cmp(&b.phrase)
                 .then(a.wubi_code.len().cmp(&b.wubi_code.len()))
@@ -221,7 +221,7 @@ impl WubiTable {
 
     pub fn write_table<W: io::Write>(&mut self, mut writer: W) -> io::Result<()> {
         self.entries
-            .sort_unstable_by(|a, b| a.wubi_code.cmp(&b.wubi_code));
+            .sort_by(|a, b| a.wubi_code.cmp(&b.wubi_code));
 
         let mut iter = self.entries.iter();
         let mut last_entry = {
