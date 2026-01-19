@@ -1,10 +1,19 @@
 #![forbid(unsafe_code)]
 
-use std::{fs, io::{self, BufRead as _}};
+use std::{
+    fs,
+    io::{self, BufRead as _},
+};
 use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum ParseError {
+    #[error("No '\\t' found: {0}")]
+    NoTabFound(String),
+    #[error("More than one character found: {0}")]
+    MultipleCharacters(String),
+    #[error("Not ASCII lowercase")]
+    NotAsciiLowercase,
     #[error("Invalid format")]
     Invalid,
     #[error("Parse int error: {0}")]
@@ -19,11 +28,15 @@ pub struct WubiEntry {
 }
 
 fn parse_line_with_codepoint(line: &str) -> Result<WubiEntry, ParseError> {
-    let (codepoint, rest) = line.split_once('\t').ok_or(ParseError::Invalid)?;
-    let (ch, wubi) = rest.split_once('\t').ok_or(ParseError::Invalid)?;
+    let (codepoint, rest) = line
+        .split_once('\t')
+        .ok_or(ParseError::NoTabFound(line.to_string()))?;
+    let (ch, wubi) = rest
+        .split_once('\t')
+        .ok_or(ParseError::NoTabFound(line.to_string()))?;
     let ch = {
         if ch.chars().count() != 1 {
-            return Err(ParseError::Invalid);
+            return Err(ParseError::MultipleCharacters(ch.to_string()));
         }
         ch.chars().next().expect("Checked above")
     };
@@ -33,7 +46,7 @@ fn parse_line_with_codepoint(line: &str) -> Result<WubiEntry, ParseError> {
     let mut cnt = 0;
     for b in wubi.as_bytes() {
         if !b.is_ascii_lowercase() {
-            return Err(ParseError::Invalid);
+            return Err(ParseError::NotAsciiLowercase);
         }
         cnt += 1; // TODO: check overflow
     }
@@ -47,17 +60,19 @@ fn parse_line_with_codepoint(line: &str) -> Result<WubiEntry, ParseError> {
 }
 
 fn parse_line_without_codepoint(line: &str) -> Result<WubiEntry, ParseError> {
-    let (ch, wubi) = line.split_once('\t').ok_or(ParseError::Invalid)?;
+    let (ch, wubi) = line
+        .split_once('\t')
+        .ok_or(ParseError::NoTabFound(line.to_string()))?;
     let ch = {
         if ch.chars().count() != 1 {
-            return Err(ParseError::Invalid);
+            return Err(ParseError::MultipleCharacters(ch.to_string()));
         }
         ch.chars().next().expect("Checked above")
     };
     let mut cnt = 0;
     for b in wubi.as_bytes() {
         if !b.is_ascii_lowercase() {
-            return Err(ParseError::Invalid);
+            return Err(ParseError::NotAsciiLowercase);
         }
         cnt += 1; // TODO: check overflow
     }
@@ -109,7 +124,10 @@ impl WubiTable {
         let character = character.to_string();
         let left = self.entries.partition_point(|e| e.phrase < character);
         let right = self.entries.partition_point(|e| e.phrase <= character);
-        self.entries[left..right].iter().map(|e| e.wubi_code.clone()).max_by_key(|p| p.len())
+        self.entries[left..right]
+            .iter()
+            .map(|e| e.wubi_code.clone())
+            .max_by_key(|p| p.len())
     }
 
     pub fn extend_phrases<I: Iterator<Item = String>>(&mut self, phrases: I) {
@@ -172,15 +190,29 @@ impl WubiTable {
             };
 
             let entry = WubiEntry { phrase, wubi_code };
-            self.entries.insert(self.entries.partition_point(|e| e.phrase < entry.phrase), entry);
+            self.entries.insert(
+                self.entries.partition_point(|e| e.phrase < entry.phrase),
+                entry,
+            );
         }
     }
 
     pub fn unique_reverse_table(&mut self) -> bool {
-        self.entries
-            .sort_by(|a, b| a.phrase.cmp(&b.phrase));
+        self.entries.sort_by(|a, b| a.phrase.cmp(&b.phrase));
         for i in 1..self.entries.len() {
             if self.entries[i - 1].phrase == self.entries[i].phrase {
+                println!("Duplicate phrase: {}", self.entries[i].phrase);
+                return false;
+            }
+        }
+        true
+    }
+
+    pub fn unique_table(&mut self) -> bool {
+        self.entries.sort_by(|a, b| a.wubi_code.cmp(&b.wubi_code));
+        for i in 1..self.entries.len() {
+            if self.entries[i - 1].wubi_code == self.entries[i].wubi_code {
+                println!("Duplicate wubi code: {:?}", self.entries[i].wubi_code);
                 return false;
             }
         }
@@ -220,8 +252,11 @@ impl WubiTable {
     }
 
     pub fn write_table<W: io::Write>(&mut self, mut writer: W) -> io::Result<()> {
-        self.entries
-            .sort_by(|a, b| a.wubi_code.cmp(&b.wubi_code));
+        self.entries.sort_by(|a, b| {
+            a.wubi_code
+                .cmp(&b.wubi_code)
+                .then(a.phrase.chars().count().cmp(&b.phrase.chars().count()))
+        });
 
         let mut iter = self.entries.iter();
         let mut last_entry = {
@@ -248,30 +283,28 @@ impl WubiTable {
 }
 
 fn main() {
-    let original =
-        io::BufReader::new(fs::File::open(std::env::var("WUBI_TABLE_ORIGINAL").unwrap()).unwrap());
-    let mut table = WubiTable::build_with_codepoint(original).unwrap();
-    assert!(table.unique_reverse_table());
-
     let simplified = io::BufReader::new(
         fs::File::open(std::env::var("WUBI_TABLE_SIMPLIFIED").unwrap()).unwrap(),
     );
-    table.entries.extend(
-        WubiTable::build_without_codepoint(simplified)
-            .unwrap()
-            .entries,
-    );
+
+    let mut table = WubiTable::build_without_codepoint(simplified).unwrap();
+    assert!(table.unique_table());
+
+    let original =
+        io::BufReader::new(fs::File::open(std::env::var("WUBI_TABLE_ORIGINAL").unwrap()).unwrap());
+    table
+        .entries
+        .extend(WubiTable::build_with_codepoint(original).unwrap().entries);
+
+    let phrases =
+        io::BufReader::new(fs::File::open(std::env::var("WUBI_PHRASES").unwrap()).unwrap())
+            .lines()
+            .map(|line| line.unwrap());
+    table.extend_phrases(phrases);
 
     let mut reverse_table_file =
         io::BufWriter::new(fs::File::create("wb_nc_reverse_table.txt").unwrap());
     table.write_reverse_table(&mut reverse_table_file).unwrap();
-
-    let phrases = io::BufReader::new(
-        fs::File::open(std::env::var("WUBI_PHRASES").unwrap()).unwrap(),
-    )
-    .lines()
-    .map(|line| line.unwrap());
-    table.extend_phrases(phrases);
 
     let mut table_file = io::BufWriter::new(fs::File::create("wb_nc_table.txt").unwrap());
     table.write_table(&mut table_file).unwrap();
