@@ -4,16 +4,26 @@ use std::{
     fs,
     io::{self, BufRead as _},
 };
+use table::*;
 use thiserror::Error;
 
-#[derive(Error, Debug)]
+mod table;
+
+// TODO: refuse 16-bits computer
+
+#[derive(Error, Debug, PartialEq)]
+#[non_exhaustive]
 pub enum ParseError {
+    #[error("empty")]
+    Empty,
+    #[error("too long code: {0:?}")]
+    TooLongCode(Vec<u8>),
     #[error("No '\\t' found: {0}")]
     NoTabFound(String),
     #[error("More than one character found: {0}")]
     MultipleCharacters(String),
     #[error("Not ASCII lowercase")]
-    NotAsciiLowercase,
+    NotValidChar,
     #[error("Invalid format")]
     Invalid,
     #[error("Parse int error: {0}")]
@@ -25,6 +35,11 @@ pub enum ParseError {
 pub struct WubiEntry {
     phrase: String,
     wubi_code: Vec<u8>,
+}
+
+pub struct WubiEntry2 {
+    phrase: String,
+    wubi_code: usize,
 }
 
 fn parse_line_with_codepoint(line: &str) -> Result<WubiEntry, ParseError> {
@@ -45,8 +60,8 @@ fn parse_line_with_codepoint(line: &str) -> Result<WubiEntry, ParseError> {
     }
     let mut cnt = 0;
     for b in wubi.as_bytes() {
-        if !b.is_ascii_lowercase() {
-            return Err(ParseError::NotAsciiLowercase);
+        if !(b'a'..=b'y').contains(b) {
+            return Err(ParseError::NotValidChar);
         }
         cnt += 1; // TODO: check overflow
     }
@@ -71,8 +86,8 @@ fn parse_line_without_codepoint(line: &str) -> Result<WubiEntry, ParseError> {
     };
     let mut cnt = 0;
     for b in wubi.as_bytes() {
-        if !b.is_ascii_lowercase() {
-            return Err(ParseError::NotAsciiLowercase);
+        if !(b'a'..=b'y').contains(b) {
+            return Err(ParseError::NotValidChar);
         }
         cnt += 1; // TODO: check overflow
     }
@@ -83,6 +98,29 @@ fn parse_line_without_codepoint(line: &str) -> Result<WubiEntry, ParseError> {
         phrase: ch.to_string(),
         wubi_code: wubi.as_bytes().to_vec(),
     })
+}
+
+fn parse_line_without_codepoint2(line: String) -> Result<WubiEntry2, ParseError> {
+    let (ch, wubi) = line
+        .split_once('\t')
+        .ok_or(ParseError::NoTabFound(line.to_string()))?;
+    let ch = {
+        if ch.chars().count() != 1 {
+            return Err(ParseError::MultipleCharacters(ch.to_string()));
+        }
+        ch.chars().next().expect("Checked above")
+    };
+    let mut cnt = 0;
+    for b in wubi.as_bytes() {
+        if !(b'a'..=b'y').contains(b) {
+            return Err(ParseError::NotValidChar);
+        }
+        cnt += 1; // TODO: check overflow
+    }
+    if !(1..=4).contains(&cnt) {
+        return Err(ParseError::Invalid);
+    }
+    todo!()
 }
 
 pub struct WubiTable {
@@ -282,30 +320,60 @@ impl WubiTable {
     }
 }
 
+fn get_lines(read: &mut io::BufReader<fs::File>) -> impl Iterator<Item = String> {
+    // fn get_lines(read: io::BufReader<fs::File>) -> impl Iterator<Item = String> {
+    read.lines().map(|line| line.unwrap())
+}
+
 fn main() {
-    let simplified = io::BufReader::new(
-        fs::File::open(std::env::var("WUBI_TABLE_SIMPLIFIED").unwrap()).unwrap(),
-    );
+    env_logger::init();
 
-    let mut table = WubiTable::build_without_codepoint(simplified).unwrap();
-    assert!(table.unique_table());
+    let mut simplified = SimplifiedCodeTable2::new();
+    for i in 1..=3 {
+        let file = format!("simplified{i}.txt");
+        log::info!("Loading simplified table from {}", file);
+        let mut file = io::BufReader::new(fs::File::open(file).unwrap());
+        for line in get_lines(&mut file) {
+            let (chars, code) = line.split_once('\t').unwrap();
+            let mut chars = chars.chars();
+            let ch = chars.next().unwrap();
+            assert!(
+                chars.next().is_none(),
+                "Simplified code is for single character"
+            );
+            let code = code.try_into().unwrap();
+            simplified.insert(&code, ch).unwrap();
+        }
+    }
+    // simplified.shrink_to_fit();
 
-    let original =
-        io::BufReader::new(fs::File::open(std::env::var("WUBI_TABLE_ORIGINAL").unwrap()).unwrap());
-    table
-        .entries
-        .extend(WubiTable::build_with_codepoint(original).unwrap().entries);
+    let mut full = FullCodeTable2::new();
+    let mut cjk = io::BufReader::new(fs::File::open("CJK.txt").unwrap());
+    for mut line in get_lines(&mut cjk) {}
 
-    let phrases =
-        io::BufReader::new(fs::File::open(std::env::var("WUBI_PHRASES").unwrap()).unwrap())
-            .lines()
-            .map(|line| line.unwrap());
-    table.extend_phrases(phrases);
+    // let simplified = io::BufReader::new(
+    //     fs::File::open(std::env::var("WUBI_TABLE_SIMPLIFIED").unwrap()).unwrap(),
+    // );
 
-    let mut reverse_table_file =
-        io::BufWriter::new(fs::File::create("wb_nc_reverse_table.txt").unwrap());
-    table.write_reverse_table(&mut reverse_table_file).unwrap();
+    // let mut table = WubiTable::build_without_codepoint(simplified).unwrap();
+    // assert!(table.unique_table());
 
-    let mut table_file = io::BufWriter::new(fs::File::create("wb_nc_table.txt").unwrap());
-    table.write_table(&mut table_file).unwrap();
+    // let original =
+    //     io::BufReader::new(fs::File::open(std::env::var("WUBI_TABLE_ORIGINAL").unwrap()).unwrap());
+    // table
+    //     .entries
+    //     .extend(WubiTable::build_with_codepoint(original).unwrap().entries);
+
+    // let phrases =
+    //     io::BufReader::new(fs::File::open(std::env::var("WUBI_PHRASES").unwrap()).unwrap())
+    //         .lines()
+    //         .map(|line| line.unwrap());
+    // table.extend_phrases(phrases);
+
+    // let mut reverse_table_file =
+    //     io::BufWriter::new(fs::File::create("wb_nc_reverse_table.txt").unwrap());
+    // table.write_reverse_table(&mut reverse_table_file).unwrap();
+
+    // let mut table_file = io::BufWriter::new(fs::File::create("wb_nc_table.txt").unwrap());
+    // table.write_table(&mut table_file).unwrap();
 }
