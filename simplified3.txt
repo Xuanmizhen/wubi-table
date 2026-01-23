@@ -408,7 +408,6 @@
 駛	cok
 驛	col
 騧	com
-从	con
 駁	cor
 驃	cos
 驕	cot
@@ -4618,7 +4617,6 @@
 匕	xtn
 绦	xts
 终	xtu
-学	xue
 绊	xug
 弹	xul
 㢼	xum
@@ -4627,7 +4625,6 @@
 緧	xus
 弱	xux
 絕	xvc
-学	xve
 绿	xvi
 缫	xvj
 绍	xvk

@@ -2,12 +2,12 @@
 
 use std::{
     fs,
-    io::{self, BufRead as _},
+    io::{self, BufRead as _, Write as _},
 };
 use table::*;
 use thiserror::Error;
 
-mod table;
+pub mod table;
 
 // TODO: refuse 16-bits computer
 
@@ -39,10 +39,14 @@ pub struct WubiEntry {
 
 pub struct WubiEntry2 {
     phrase: String,
-    wubi_code: usize,
+    wubi_code: WubiCode2,
 }
 
 fn parse_line_with_codepoint(line: &str) -> Result<WubiEntry, ParseError> {
+    todo!()
+}
+
+fn parse_line_with_codepoint2(line: &str) -> Result<WubiEntry2, ParseError> {
     let (codepoint, rest) = line
         .split_once('\t')
         .ok_or(ParseError::NoTabFound(line.to_string()))?;
@@ -68,9 +72,9 @@ fn parse_line_with_codepoint(line: &str) -> Result<WubiEntry, ParseError> {
     if !(1..=4).contains(&cnt) {
         return Err(ParseError::Invalid);
     }
-    Ok(WubiEntry {
+    Ok(WubiEntry2 {
         phrase: ch.to_string(),
-        wubi_code: wubi.as_bytes().to_vec(),
+        wubi_code: wubi.try_into()?,
     })
 }
 
@@ -128,9 +132,7 @@ pub struct WubiTable {
 }
 
 impl WubiTable {
-    pub fn build_with_codepoint<R: io::BufRead>(
-        reader: R,
-    ) -> Result<Self, Box<dyn std::error::Error>> {
+    fn build_with_codepoint<R: io::BufRead>(reader: R) -> Result<Self, Box<dyn std::error::Error>> {
         Ok(WubiTable {
             entries: reader
                 .lines()
@@ -326,54 +328,49 @@ fn get_lines(read: &mut io::BufReader<fs::File>) -> impl Iterator<Item = String>
 }
 
 fn main() {
-    env_logger::init();
+    // env_logger::init();
 
     let mut simplified = SimplifiedCodeTable2::new();
     for i in 1..=3 {
         let file = format!("simplified{i}.txt");
-        log::info!("Loading simplified table from {}", file);
+        println!("Loading simplified table from {}", file);
         let mut file = io::BufReader::new(fs::File::open(file).unwrap());
         for line in get_lines(&mut file) {
             let (chars, code) = line.split_once('\t').unwrap();
             let mut chars = chars.chars();
-            let ch = chars.next().unwrap();
-            assert!(
-                chars.next().is_none(),
-                "Simplified code is for single character"
-            );
-            let code = code.try_into().unwrap();
-            simplified.insert(&code, ch).unwrap();
+            if let Some(ch) = chars.next() {
+                assert!(
+                    chars.next().is_none(),
+                    "Simplified code is for single character"
+                );
+                let code = code.try_into().unwrap();
+                simplified.insert(&code, ch).unwrap();
+            } else {
+                todo!()
+            }
         }
     }
-    // simplified.shrink_to_fit();
 
     let mut full = FullCodeTable2::new();
     let mut cjk = io::BufReader::new(fs::File::open("CJK.txt").unwrap());
-    for mut line in get_lines(&mut cjk) {}
+    for line in get_lines(&mut cjk) {
+        let entry = parse_line_with_codepoint2(line.as_str()).unwrap();
+        full.insert(entry);
+    }
 
-    // let simplified = io::BufReader::new(
-    //     fs::File::open(std::env::var("WUBI_TABLE_SIMPLIFIED").unwrap()).unwrap(),
-    // );
+    let table = Table::new(simplified, full);
 
-    // let mut table = WubiTable::build_without_codepoint(simplified).unwrap();
-    // assert!(table.unique_table());
+    let mut phrases = io::BufReader::new(fs::File::open("phrases.txt").unwrap());
+    for line in get_lines(&mut phrases) {
+        todo!()
+    }
 
-    // let original =
-    //     io::BufReader::new(fs::File::open(std::env::var("WUBI_TABLE_ORIGINAL").unwrap()).unwrap());
-    // table
-    //     .entries
-    //     .extend(WubiTable::build_with_codepoint(original).unwrap().entries);
-
-    // let phrases =
-    //     io::BufReader::new(fs::File::open(std::env::var("WUBI_PHRASES").unwrap()).unwrap())
-    //         .lines()
-    //         .map(|line| line.unwrap());
-    // table.extend_phrases(phrases);
-
-    // let mut reverse_table_file =
-    //     io::BufWriter::new(fs::File::create("wb_nc_reverse_table.txt").unwrap());
-    // table.write_reverse_table(&mut reverse_table_file).unwrap();
-
-    // let mut table_file = io::BufWriter::new(fs::File::create("wb_nc_table.txt").unwrap());
-    // table.write_table(&mut table_file).unwrap();
+    let mut reverse_table_file =
+        io::BufWriter::new(fs::File::create("wb_nc_reverse_table.txt").unwrap());
+    for (wubi_code, ch) in table.reverse_simplified_table() {
+        writeln!(reverse_table_file, "{} {}", ch, wubi_code).unwrap();
+    }
+    for item in table.reverse_filtered_full_table() {
+        todo!()
+    }
 }
