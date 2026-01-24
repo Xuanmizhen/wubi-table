@@ -32,12 +32,12 @@ pub enum ParseError {
     CodepointMismatch,
 }
 
-pub struct WubiEntry2 {
+pub struct WubiEntry {
     phrase: String,
-    wubi_code: WubiCode2,
+    wubi_code: WubiCode,
 }
 
-fn parse_line_with_codepoint2(line: &str) -> Result<WubiEntry2, ParseError> {
+fn parse_line_with_codepoint(line: &str) -> Result<WubiEntry, ParseError> {
     let (codepoint, rest) = line
         .split_once('\t')
         .ok_or(ParseError::NoTabFound(line.to_string()))?;
@@ -63,7 +63,7 @@ fn parse_line_with_codepoint2(line: &str) -> Result<WubiEntry2, ParseError> {
     if !(1..=4).contains(&cnt) {
         return Err(ParseError::Invalid);
     }
-    Ok(WubiEntry2 {
+    Ok(WubiEntry {
         phrase: ch.to_string(),
         wubi_code: wubi.try_into()?,
     })
@@ -76,7 +76,7 @@ fn get_lines(read: &mut io::BufReader<fs::File>) -> impl Iterator<Item = String>
 fn main() {
     // env_logger::init();
 
-    let mut simplified = SimplifiedCodeTable2::new();
+    let mut simplified = SimplifiedCodeTable::new();
     for i in 1..=3 {
         let file = format!("simplified{i}.txt");
         println!("Loading simplified table from {}", file);
@@ -97,10 +97,10 @@ fn main() {
         }
     }
 
-    let mut full = FullCodeTable2::new();
+    let mut full = FullCodeTable::new();
     let mut cjk = io::BufReader::new(fs::File::open("CJK.txt").unwrap());
     for line in get_lines(&mut cjk) {
-        let entry = parse_line_with_codepoint2(line.as_str()).unwrap();
+        let entry = parse_line_with_codepoint(line.as_str()).unwrap();
         full.insert(entry);
     }
 
@@ -110,7 +110,7 @@ fn main() {
             let code = full.code(&ch.to_string()).unwrap();
             *code.last().unwrap()
         });
-        let entry = WubiEntry2 { phrase, wubi_code };
+        let entry = WubiEntry { phrase, wubi_code };
         full.insert(entry);
     }
 
