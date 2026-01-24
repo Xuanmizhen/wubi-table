@@ -106,6 +106,7 @@ fn main() {
         let entry = parse_line_with_codepoint(line.as_str()).unwrap();
         full.insert(entry);
     }
+    drop(cjk);
 
     println!("Loading phrases");
     let mut phrases = io::BufReader::new(fs::File::open("phrases.txt").unwrap());
@@ -118,6 +119,7 @@ fn main() {
         let entry = WubiEntry { phrase, wubi_code };
         full.insert(entry);
     }
+    drop(phrases);
 
     let table = Table::new(simplified, full);
 

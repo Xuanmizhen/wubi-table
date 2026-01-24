@@ -1,7 +1,7 @@
 use super::ParseError;
 use crate::WubiEntry;
 use arrayvec::ArrayVec;
-use std::{collections::HashMap, fmt};
+use std::{collections::BTreeMap, fmt};
 
 const INDEX_UPPER_BOUND: usize = 26_u32.strict_pow(4) as usize;
 
@@ -96,7 +96,7 @@ impl fmt::Display for WubiCode {
 
 pub struct FullCodeTable {
     code_to_phrases: Vec<Vec<String>>,
-    phrase_to_code: HashMap<String, WubiCode>,
+    phrase_to_code: BTreeMap<String, WubiCode>,
 }
 
 impl FullCodeTable {
@@ -105,7 +105,7 @@ impl FullCodeTable {
         for _ in 0..INDEX_UPPER_BOUND {
             code_to_phrases.push(Vec::new());
         }
-        let phrase_to_code = HashMap::new();
+        let phrase_to_code = BTreeMap::new();
         Self {
             code_to_phrases,
             phrase_to_code,
