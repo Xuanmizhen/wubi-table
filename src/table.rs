@@ -96,7 +96,7 @@ impl fmt::Display for WubiCode {
 
 pub struct FullCodeTable {
     code_to_phrases: Vec<Vec<String>>,
-    phrase_to_code: HashMap<String, Vec<WubiCode>>,
+    phrase_to_code: HashMap<String, WubiCode>,
 }
 
 impl FullCodeTable {
@@ -116,20 +116,23 @@ impl FullCodeTable {
         &mut self.code_to_phrases[code.index as usize]
     }
 
-    pub fn code_mut(&mut self, phrase: &String) -> Option<&mut Vec<WubiCode>> {
+    pub fn code_mut(&mut self, phrase: &String) -> Option<&mut WubiCode> {
         self.phrase_to_code.get_mut(phrase)
     }
 
-    pub fn code(&self, phrase: &String) -> Option<&Vec<WubiCode>> {
+    pub fn code(&self, phrase: &String) -> Option<&WubiCode> {
         self.phrase_to_code.get(phrase)
     }
 
     pub fn insert(&mut self, entry: WubiEntry) {
         if let Some(code_mut) = self.code_mut(&entry.phrase) {
-            code_mut.push(entry.wubi_code);
+            // code_mut.push(entry.wubi_code);
+            println!("{}", entry.phrase);
+            println!("{}", code_mut);
+            panic!();
         } else {
             self.phrase_to_code
-                .insert(entry.phrase.clone(), vec![entry.wubi_code]);
+                .insert(entry.phrase.clone(), entry.wubi_code);
         }
         self.phrases_mut(&entry.wubi_code).push(entry.phrase);
     }
@@ -269,9 +272,7 @@ impl Table {
         })
     }
 
-    pub fn simplified_table(
-        &self,
-    ) -> impl Iterator<Item = (char, impl Iterator<Item = WubiCode>)> {
+    pub fn simplified_table(&self) -> impl Iterator<Item = (char, impl Iterator<Item = WubiCode>)> {
         self.simplified
             .char_to_code
             .iter()
@@ -289,32 +290,22 @@ impl Table {
             })
     }
 
-    fn full_table(&self) -> impl Iterator<Item = (&String, &Vec<WubiCode>)> {
+    fn full_table(&self) -> impl Iterator<Item = (&String, &WubiCode)> {
         self.full.phrase_to_code.iter()
     }
 
-    pub fn filtered_full_table(
-        &self,
-    ) -> impl Iterator<Item = (&String, impl Iterator<Item = &WubiCode>)> {
-        self.full_table().filter_map(|(phrase, codes)| {
+    pub fn filtered_full_table(&self) -> impl Iterator<Item = (&String, &WubiCode)> {
+        self.full_table().filter_map(|(phrase, code)| {
             let mut chars = phrase.chars();
-            let mut get_codes = || {
-                if let Some(ch) = chars.next()
-                    && chars.next().is_none()
-                    && let Some(simplified_codes) = self.simplified.code_of_char(ch)
-                    && let Some(longest_simplified_code) = simplified_codes.last()
-                {
-                    let codes = codes.iter().skip_while(|c| **c == *longest_simplified_code);
-                    return codes.collect();
-                }
-                let codes = codes.iter();
-                codes.collect()
-            };
-            let codes: Vec<_> = get_codes();
-            if codes.is_empty() {
+            if let Some(ch) = chars.next()
+                && chars.next().is_none()
+                && let Some(simplified_codes) = self.simplified.code_of_char(ch)
+                && let Some(longest_simplified_code) = simplified_codes.last()
+                && longest_simplified_code == code
+            {
                 None
             } else {
-                Some((phrase, codes.into_iter()))
+                Some((phrase, code))
             }
         })
     }

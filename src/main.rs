@@ -32,6 +32,7 @@ pub enum ParseError {
     CodepointMismatch,
 }
 
+#[derive(Clone, Debug)]
 pub struct WubiEntry {
     phrase: String,
     wubi_code: WubiCode,
@@ -97,6 +98,7 @@ fn main() {
         }
     }
 
+    println!("Loading full table");
     let mut full = FullCodeTable::new();
     let mut cjk = io::BufReader::new(fs::File::open("CJK.txt").unwrap());
     for line in get_lines(&mut cjk) {
@@ -104,11 +106,13 @@ fn main() {
         full.insert(entry);
     }
 
+    println!("Loading phrases");
     let mut phrases = io::BufReader::new(fs::File::open("phrases.txt").unwrap());
     for phrase in get_lines(&mut phrases) {
         let wubi_code = get_code_for_phrase(phrase.as_str(), |ch| {
             let code = full.code(&ch.to_string()).unwrap();
-            *code.last().unwrap()
+            // *code.last().unwrap()
+            *code
         });
         let entry = WubiEntry { phrase, wubi_code };
         full.insert(entry);
@@ -116,6 +120,7 @@ fn main() {
 
     let table = Table::new(simplified, full);
 
+    println!("Generating reverse table");
     let mut reverse_table_file =
         io::BufWriter::new(fs::File::create("wb_nc_reverse_table.txt").unwrap());
     for (wubi_code, ch) in table.reverse_simplified_table() {
@@ -130,6 +135,7 @@ fn main() {
         writeln!(reverse_table_file).unwrap();
     }
 
+    println!("Generating table");
     let mut table_file = io::BufWriter::new(fs::File::create("wb_nc_table.txt").unwrap());
     for (ch, wubi_code) in table.simplified_table() {
         write!(table_file, "{}", ch).unwrap();
