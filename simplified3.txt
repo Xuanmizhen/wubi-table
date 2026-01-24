@@ -344,7 +344,6 @@
 劲	cae
 才	cai
 弁	caj
-残	can
 草	cao
 迳	cap
 戏	cay
@@ -379,12 +378,7 @@
 骥	cgu
 验	cgw
 骗	cgy
-差	cha
-车	che
-吃	chi
-冲	cho
 覌	chq
-出	chu
 厼	ciu
 邰	ckb
 台	ckf
@@ -3487,7 +3481,6 @@
 相	shg
 是	shi
 想	shn
-手	sho
 书	shu
 朴	shy
 梢	sie

@@ -16,7 +16,8 @@ impl TryFrom<&[u8]> for WubiCode2 {
         match value.len() {
             0 => Err(ParseError::Empty),
             5.. => Err(ParseError::TooLongCode(value.into())),
-            mut len => {
+            _ => {
+                let mut len = 4;
                 let mut index = 0;
                 for ch in value {
                     len -= 1;
@@ -43,16 +44,52 @@ impl TryFrom<&str> for WubiCode2 {
     }
 }
 
-impl From<&WubiCode2> for Vec<u8> {
-    fn from(value: &WubiCode2) -> Self {
+impl From<WubiCode2> for Vec<u8> {
+    fn from(mut value: WubiCode2) -> Self {
         debug_assert!((value.index as usize) < INDEX_UPPER_BOUND);
-        todo!()
+
+        // TODO: DRY
+        let byte1 = value.index / 26_u32.pow(3);
+        value.index %= 26_u32.pow(3);
+        match byte1 {
+            0 => {
+                eprintln!("{}", value.index);
+                panic!();
+            } // should not appear
+            byte1 => {
+                let byte1 = byte1 as u8 - 1 + b'a';
+                let byte2 = value.index / 26_u32.pow(2);
+                value.index %= 26_u32.pow(2);
+                match byte2 {
+                    0 => vec![byte1],
+                    byte2 => {
+                        let byte2 = byte2 as u8 - 1 + b'a';
+                        let byte3 = value.index / 26_u32.pow(1);
+                        value.index %= 26_u32.pow(1);
+                        match byte3 {
+                            0 => vec![byte1, byte2],
+                            byte3 => {
+                                let byte3 = (byte3 - 1) as u8 + b'a';
+                                let byte4 = value.index;
+                                match byte4 {
+                                    0 => vec![byte1, byte2, byte3],
+                                    byte4 => {
+                                        let byte4 = (byte4 - 1) as u8 + b'a';
+                                        vec![byte1, byte2, byte3, byte4]
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
 impl fmt::Display for WubiCode2 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let v = Vec::from(self);
+        let v = Vec::from(*self);
         f.write_str(std::str::from_utf8(&v).expect("`From` trait should be implemented properly"))
     }
 }
@@ -83,6 +120,10 @@ impl FullCodeTable2 {
         self.phrase_to_code.get_mut(phrase)
     }
 
+    pub fn code(&self, phrase: &String) -> Option<&Vec<WubiCode2>> {
+        self.phrase_to_code.get(phrase)
+    }
+
     pub fn insert(&mut self, entry: WubiEntry2) {
         if let Some(code_mut) = self.code_mut(&entry.phrase) {
             code_mut.push(entry.wubi_code);
@@ -91,6 +132,12 @@ impl FullCodeTable2 {
                 .insert(entry.phrase.clone(), vec![entry.wubi_code]);
         }
         self.phrases_mut(&entry.wubi_code).push(entry.phrase);
+    }
+}
+
+impl Default for FullCodeTable2 {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -115,7 +162,7 @@ impl SimplifiedCodeTable2 {
         }
     }
 
-    pub fn exists(&self, ch: char, code: &WubiCode2) -> bool {
+    fn exists(&self, ch: char, code: &WubiCode2) -> bool {
         if let Some(original) = self.char_of_code(code) {
             return ch == *original;
         }
@@ -179,7 +226,7 @@ impl Table {
         Self { simplified, full }
     }
 
-    pub fn reverse_simplified_table(&self) -> impl Iterator<Item = (WubiCode2, char)> {
+    pub fn reverse_simplified_table(&self) -> impl Iterator<Item = (WubiCode2, String)> {
         self.simplified
             .code_to_char
             .iter()
@@ -187,40 +234,122 @@ impl Table {
             .filter_map(|(index, ch)| {
                 ch.map(|ch| {
                     let index = index as u32;
-                    (WubiCode2 { index }, ch)
+                    (WubiCode2 { index }, ch.to_string())
                 })
             })
     }
-    fn reverse_full_table(
-        &self,
-    ) -> impl Iterator<Item = (WubiCode2, impl Iterator<Item = &'_ String>)> {
+    fn reverse_full_table(&self) -> impl Iterator<Item = (WubiCode2, &Vec<String>)> {
         self.full
             .code_to_phrases
             .iter()
             .enumerate()
             .map(|(index, phrases)| {
                 let index = index as u32;
-                (WubiCode2 { index }, phrases.iter())
+                (WubiCode2 { index }, phrases)
             })
     }
+
     pub fn reverse_filtered_full_table(
         &self,
-    ) -> impl Iterator<Item = (WubiCode2, Box<dyn Iterator<Item = &'_ String> + '_>)> {
-        self.reverse_full_table().map(|(code, phrases)| {
-            if let Some(simplified_ch) = self.simplified.char_of_code(&code) {
-                let phrases = phrases.filter(|phrase| {
-                    let mut chars = phrase.chars();
-                    chars.next() == Some(*simplified_ch) && chars.next().is_none()
-                });
-                (code, Box::new(phrases) as Box<dyn Iterator<Item = &String>>)
+    ) -> impl Iterator<Item = (WubiCode2, impl Iterator<Item = &String>)> {
+        self.reverse_full_table().filter_map(|(code, phrases)| {
+            let phrases: Vec<_> = if let Some(simplified_ch) = self.simplified.char_of_code(&code) {
+                let phrases = phrases
+                    .iter()
+                    .skip_while(|phrase| **phrase != simplified_ch.to_string());
+                phrases.collect()
             } else {
-                (code, Box::new(phrases) as Box<dyn Iterator<Item = &String>>)
+                phrases.iter().collect()
+            };
+            if phrases.is_empty() {
+                None
+            } else {
+                Some((code, phrases.into_iter()))
             }
         })
     }
 
-    pub fn reverse_table(&self) -> impl Iterator<Item = (&'_ String, &'_ Vec<WubiCode2>)> {
+    pub fn simplified_table(
+        &self,
+    ) -> impl Iterator<Item = (char, impl Iterator<Item = WubiCode2>)> {
+        self.simplified
+            .char_to_code
+            .iter()
+            .enumerate()
+            .filter_map(|(index, codes)| {
+                if codes.is_empty() {
+                    return None;
+                }
+                let ch = char::from_u32(CHAR_MIN as u32 + index as u32).unwrap();
+                let codes = codes.iter().map(|code| {
+                    let index = code.index;
+                    WubiCode2 { index }
+                });
+                Some((ch, codes))
+            })
+    }
+
+    fn full_table(&self) -> impl Iterator<Item = (&String, &Vec<WubiCode2>)> {
         self.full.phrase_to_code.iter()
+    }
+
+    pub fn filtered_full_table(
+        &self,
+    ) -> impl Iterator<Item = (&String, impl Iterator<Item = &WubiCode2>)> {
+        self.full_table().filter_map(|(phrase, codes)| {
+            let mut chars = phrase.chars();
+            let mut get_codes = || {
+                if let Some(ch) = chars.next()
+                    && chars.next().is_none()
+                    && let Some(simplified_codes) = self.simplified.code_of_char(ch)
+                    && let Some(longest_simplified_code) = simplified_codes.last()
+                {
+                    let codes = codes.iter().skip_while(|c| **c == *longest_simplified_code);
+                    return codes.collect();
+                }
+                let codes = codes.iter();
+                codes.collect()
+            };
+            let codes: Vec<_> = get_codes();
+            if codes.is_empty() {
+                None
+            } else {
+                Some((phrase, codes.into_iter()))
+            }
+        })
+    }
+}
+
+pub fn get_code_for_phrase(phrase: &str, char_code: impl Fn(char) -> WubiCode2) -> WubiCode2 {
+    let mut chars = phrase.chars();
+    match chars.clone().count() {
+        0 | 1 => panic!(),
+        2 => {
+            let first = char_code(chars.next().unwrap());
+            let second = char_code(chars.next().unwrap());
+            let index = first.index / 26_u32.pow(2) * 26_u32.pow(2) + second.index / 26_u32.pow(2);
+            WubiCode2 { index }
+        }
+        3 => {
+            let first = char_code(chars.next().unwrap());
+            let second = char_code(chars.next().unwrap());
+            let third = char_code(chars.next().unwrap());
+            let index = first.index / 26_u32.pow(3) * 26_u32.pow(3)
+                + second.index / 26_u32.pow(3) * 26_u32.pow(2)
+                + third.index / 26_u32.pow(2);
+            WubiCode2 { index }
+        }
+        4.. => {
+            let first = char_code(chars.next().unwrap());
+            let second = char_code(chars.next().unwrap());
+            let third = char_code(chars.next().unwrap());
+            let last = char_code(chars.last().unwrap());
+            let index = first.index / 26_u32.pow(3) * 26_u32.pow(3)
+                + second.index / 26_u32.pow(3) * 26_u32.pow(2)
+                + third.index / 26_u32.pow(3) * 26_u32.pow(1)
+                + last.index / 26_u32.pow(3);
+            WubiCode2 { index }
+        }
     }
 }
 
