@@ -5,7 +5,7 @@ use std::{collections::HashMap, fmt};
 
 const INDEX_UPPER_BOUND: usize = 26_u32.strict_pow(4) as usize;
 
-#[derive(PartialEq, Debug, Copy, Clone)]
+#[derive(PartialEq, Debug, Copy, Clone, Eq, PartialOrd, Ord)]
 pub struct WubiCode {
     index: u32,
 }
@@ -165,13 +165,6 @@ impl SimplifiedCodeTable {
         }
     }
 
-    fn exists(&self, ch: char, code: &WubiCode) -> bool {
-        if let Some(original) = self.char_of_code(code) {
-            return ch == *original;
-        }
-        false
-    }
-
     pub fn insert(&mut self, code: &WubiCode, ch: char) -> Result<(), ParseError> {
         let char_ref = self.char_of_code_mut(code);
         if char_ref.is_some() {
@@ -229,7 +222,7 @@ impl Table {
         Self { simplified, full }
     }
 
-    pub fn reverse_simplified_table(&self) -> impl Iterator<Item = (WubiCode, String)> {
+    pub fn simplified_table(&self) -> impl Iterator<Item = (WubiCode, char)> {
         self.simplified
             .code_to_char
             .iter()
@@ -237,7 +230,7 @@ impl Table {
             .filter_map(|(index, ch)| {
                 ch.map(|ch| {
                     let index = index as u32;
-                    (WubiCode { index }, ch.to_string())
+                    (WubiCode { index }, ch)
                 })
             })
     }
@@ -252,7 +245,7 @@ impl Table {
             })
     }
 
-    pub fn reverse_filtered_full_table(
+    pub fn filtered_full_table(
         &self,
     ) -> impl Iterator<Item = (WubiCode, impl Iterator<Item = &String>)> {
         self.reverse_full_table().filter_map(|(code, phrases)| {
@@ -272,7 +265,9 @@ impl Table {
         })
     }
 
-    pub fn simplified_table(&self) -> impl Iterator<Item = (char, impl Iterator<Item = WubiCode>)> {
+    pub fn reverse_simplified_table(
+        &self,
+    ) -> impl Iterator<Item = (char, impl Iterator<Item = WubiCode>)> {
         self.simplified
             .char_to_code
             .iter()
@@ -294,7 +289,7 @@ impl Table {
         self.full.phrase_to_code.iter()
     }
 
-    pub fn filtered_full_table(&self) -> impl Iterator<Item = (&String, &WubiCode)> {
+    pub fn reverse_filtered_full_table(&self) -> impl Iterator<Item = (&String, &WubiCode)> {
         self.full_table().filter_map(|(phrase, code)| {
             let mut chars = phrase.chars();
             if let Some(ch) = chars.next()
