@@ -125,6 +125,7 @@ fn main() {
 
     println!("Generating table");
     let mut table_file = io::BufWriter::new(fs::File::create("wb_nc_table.txt").unwrap());
+    let mut ios_table_file = io::BufWriter::new(fs::File::create("wb_nc_ios_table.txt").unwrap());
     let mut simplified_table = table.simplified_table();
     let mut full_table = table.filtered_full_table();
     loop {
@@ -134,26 +135,32 @@ fn main() {
                 write!(table_file, "{code}").unwrap();
                 for phrase in phrases {
                     write!(table_file, " {phrase}").unwrap();
+                    writeln!(ios_table_file, "{code}={phrase}").unwrap();
                 }
                 writeln!(table_file).unwrap();
             }
             (Some((code, ch)), None) => {
                 writeln!(table_file, "{code} {ch}").unwrap();
+                writeln!(ios_table_file, "{code}={ch}").unwrap();
             }
             (Some((simplified_code, simplified_ch)), Some((full_code, full_phrases))) => {
                 match simplified_code.cmp(&full_code) {
                     Ordering::Less => {
                         writeln!(table_file, "{simplified_code} {simplified_ch}").unwrap();
+                        writeln!(ios_table_file, "{simplified_code}={simplified_ch}").unwrap();
                         write!(table_file, "{full_code}").unwrap();
                         for phrase in full_phrases {
                             write!(table_file, " {phrase}").unwrap();
+                            writeln!(ios_table_file, "{full_code}={phrase}").unwrap();
                         }
                         writeln!(table_file).unwrap();
                     }
                     Ordering::Equal => {
                         write!(table_file, "{full_code} {simplified_ch}").unwrap();
+                        writeln!(ios_table_file, "{full_code}={simplified_ch}").unwrap();
                         for phrase in full_phrases {
                             write!(table_file, " {phrase}").unwrap();
+                            writeln!(ios_table_file, "{full_code}={phrase}").unwrap();
                         }
                         writeln!(table_file).unwrap();
                     }
@@ -161,15 +168,18 @@ fn main() {
                         write!(table_file, "{full_code}").unwrap();
                         for phrase in full_phrases {
                             write!(table_file, " {phrase}").unwrap();
+                            writeln!(ios_table_file, "{full_code}={phrase}").unwrap();
                         }
                         writeln!(table_file).unwrap();
                         writeln!(table_file, "{simplified_code} {simplified_ch}").unwrap();
+                        writeln!(ios_table_file, "{simplified_code}={simplified_ch}").unwrap();
                     }
                 }
             }
         }
     }
     drop(table_file);
+    drop(ios_table_file);
 
     println!("Generating reverse table");
     let mut reverse_table_file =
